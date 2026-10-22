@@ -1,70 +1,45 @@
 # FAMMA Cleaner Company LLC
 
-Dubai, UAE — cleaning bookings and operations platform.
+Dubai cleaning operations platform. Built with React, TypeScript, Vinext and Cloudflare D1 via ChatGPT Sites.
 
-## Project status
+## Working features
 
-Initial specification only. Application code and deployment are not yet implemented.
+- Customer records and service addresses
+- Booking creation with services, Dubai dates/times, cleaner count and selling rates
+- Daily schedule, booking search and stage filters
+- Cleaner assignment with server-side overlap checks
+- Internal hourly cost snapshots and approved actual hours per cleaner
+- Machinery, transport and material charges and direct costs
+- Completed booking to immutable sales invoice
+- Tax configuration, partial payments and payment history
+- Printable invoices / browser Save as PDF
+- Job profitability reports with Excel-compatible CSV export
+- Company settings and JPEG/PNG/WebP logo upload
+- Responsive navy, turquoise and white interface
+- D1 persistence and optimistic revision checks to prevent concurrent overwrites
 
-## Core workflow
+## Access and first-release scope
 
-Customer bookings → staff scheduling → actual working hours → sales invoices → job gross profit.
+The hosted app is private to its owner through Sites authentication. This release is an office application. External client booking access, employee role accounts, Arabic translations, recurring bookings, equipment/vehicle resource calendars, per-cleaner clock-in/out, credit notes, invoice voiding and record deletion are not implemented. Do not change the Site audience to public: office APIs rely on its owner-private access boundary.
 
-Booking stages: Requested → Confirmed → Assigned → In progress → Completed → Invoiced.
-Payment status is separate: Unpaid, Partially paid, Paid.
+Approved hours currently apply equally to all cleaners on a booking. Use separate bookings for workers with different durations. Unassigned job profit is only an incomplete estimate. Tax is configurable and defaults to 0 until company settings are confirmed. Sample rate AED 35/hour is editable.
 
-## Modules
+Money is rounded to 2 decimals. Invoiced revenue and direct costs exclude tax; gross profit is before overheads. Invoice company/customer/rate snapshots do not change when settings change. Invoiced jobs are locked.
 
-| Module | Scope |
-| --- | --- |
-| Dashboard | Today's bookings, available cleaners, sales, unpaid invoices, job gross profit |
-| Customers | Name, mobile, email, service addresses, booking history |
-| Client booking page | Service, location, date, time, cleaner count, hours, estimated price |
-| Booking calendar | Cleaner, machinery and transportation assignments; overlap detection |
-| Labor costs | Internal hourly cost per cleaner, separate customer selling rates |
-| Job tracking | Arrival, start, finish, approved billable hours |
-| Additional charges | Machinery hourly/fixed, transportation per trip, materials, extras |
-| Sales invoices | Generate from completed bookings, approve charges, payments, printable PDF |
-| Reports | Sales, outstanding balances, utilization, job costs and gross profit |
-| Administration | Company details, logo, services, rates, tax settings, staff permissions |
+## Develop
 
-## Pricing rules
+Node >=22.13.0. Install with `npm ci` (or the Sites dependency helper). Run `npm run dev`.
 
-- Currency: AED. Business timezone: Asia/Dubai.
-- Labor-hours = number of cleaners × hours per cleaner; actual hours may differ by cleaner.
-- Keep agreed selling rates and internal cost snapshots on each job so later rate changes do not change historical jobs.
-- Calculate customer charges from approved billable hours and agreed rates.
-- Calculate actual labor costs from each cleaner's approved worked hours and internal cost snapshot.
-- Track selling charges and internal costs separately for machinery, transportation and materials.
-- Job gross profit = revenue before tax minus direct job costs, before overheads.
-- Internal costs and profit are visible only to authorized staff; customer views contain customer charges only.
-- Tax settings must be configurable and confirmed before issuing production invoices.
+Set `.openai/hosting.json` D1 binding to `DB`. Generate schema migrations with `npm run db:generate`; deploy through Sites to apply hosted migrations. The production database is separate from local preview data.
 
-### Illustrative example (not confirmed business rates)
+Checks:
 
-| Item | Customer charge (AED) | Internal cost (AED) |
-| --- | ---: | ---: |
-| Cleaning: 2 cleaners × 4 hours; selling 35/hour, cost 15/hour | 280 | 120 |
-| Machinery: fixed | 60 | 25 |
-| Transportation: one trip | 40 | 30 |
-| Total before tax | 380 | 175 |
+```
+npx tsc --noEmit
+node --experimental-strip-types --test tests/model.test.mjs
+npm run build
+```
 
-Estimated job gross profit: AED 205 before overheads.
+Tests cover illustrative job totals, overlap detection, required staff/hour approval, immutable invoices, duplicate invoice protection, tax and payments. Browser QA verified customer → cleaner → booking → completion → invoice → partial payment.
 
-## Design and language
-
-Navy, turquoise and white; responsive office dashboard and mobile-friendly customer booking page. Plan English and Arabic support with right-to-left layouts.
-
-## Implementation roadmap
-
-1. Company settings, staff permissions, customers, services and rate setup.
-2. Customer booking page, office calendar, resource assignment and overlap validation.
-3. Actual time entry and approval; job charge and cost calculations.
-4. Invoices, partial payments, PDF printing and job gross profit reports.
-5. Recurring bookings, customer-specific rates and expanded reporting.
-
-## Decisions to confirm
-
-Actual hourly selling rates and cleaner costs; minimum booking hours; rounding and overtime; cancellation rules; tax registration/settings; user roles; recurring booking rules.
-
-Never commit credentials, customer records or employee private information to this repository.
+No credentials or customer data belong in this public GitHub repository. `.sites-runtime`, `.wrangler` and `.env*` must remain ignored.
