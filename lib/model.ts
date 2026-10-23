@@ -2,17 +2,22 @@ export type Customer={id:string;name:string;phone:string;email:string;address:st
 export type Staff={id:string;name:string;cost:number;active:boolean};
 export type Job={id:string;customerId:string;service:string;date:string;time:string;hours:number;cleaners:number;rate:number;staffIds:string[];costs:Record<string,number>;status:string;actualHours:number|null;machinery:number;machineCost:number;transport:number;transportCost:number;materials:number;materialCost:number;notes:string};
 export type Invoice={id:string;number:string;jobId:string;customer:Customer;company:Settings;lines:{label:string;qty:number;rate:number;amount:number}[];subtotal:number;tax:number;total:number;cost:number;paid:number;payments:{id:string;amount:number;date:string}[];issued:string};
+export type CreditNote={id:string;requestId:string;number:string;invoiceId:string;invoiceNumber:string;invoiceIssued:string;customer:Customer;company:Settings;reason:string;subtotal:number;tax:number;total:number;issued:string};
 export type Settings={name:string;address:string;phone:string;email:string;website:string;trn:string;rate:number;tax:number;logo:string};
-export type State={customers:Customer[];staff:Staff[];jobs:Job[];invoices:Invoice[];settings:Settings};
+export type State={customers:Customer[];staff:Staff[];jobs:Job[];invoices:Invoice[];creditNotes?:CreditNote[];settings:Settings};
 export const stages=['Requested','Confirmed','Assigned','In progress','Completed','Invoiced'];
-export const initial:State={customers:[],staff:[],jobs:[],invoices:[],settings:{name:'FAMMA Cleaner Company LLC',address:'Dubai, UAE',phone:'',email:'',website:'',trn:'',rate:35,tax:0,logo:''}};
+export const initial:State={customers:[],staff:[],jobs:[],invoices:[],creditNotes:[],settings:{name:'FAMMA Cleaner Company LLC',address:'Dubai, UAE',phone:'',email:'',website:'',trn:'',rate:35,tax:0,logo:''}};
 export const round=(v:number)=>Math.round((v+Number.EPSILON)*100)/100;
 export function totals(j:Job){const h=j.actualHours??j.hours;const revenue=round(j.cleaners*h*j.rate+j.machinery+j.transport+j.materials);const labor=round(j.staffIds.reduce((a,id)=>a+(j.costs[id]||0)*h,0));const cost=round(labor+j.machineCost+j.transportCost+j.materialCost);return {revenue,cost,profit:round(revenue-cost),labor};}
+export function invoiceSummary(s:State,i:Invoice){const notes=(s.creditNotes??[]).filter(n=>n.invoiceId===i.id);const subtotal=round(notes.reduce((a,n)=>a+n.subtotal,0));const tax=round(notes.reduce((a,n)=>a+n.tax,0));const credited=round(subtotal+tax);const net=round(i.total-credited);return {notes,subtotal,tax,credited,net,balance:Math.max(0,round(net-i.paid)),customerCredit:Math.max(0,round(i.paid-net))};}
+export function invoiceStatus(s:State,i:Invoice){const t=invoiceSummary(s,i);return t.net===0&&t.credited>0?'Fully credited':t.balance===0?(t.credited?'Settled / credited':'Paid'):t.credited?'Partially credited':i.paid?'Partially paid':'Unpaid';}
+export function jobFinancials(s:State,j:Job){const i=s.invoices.find(i=>i.jobId===j.id);if(!i)return totals(j);const credits=invoiceSummary(s,i);const revenue=round(i.subtotal-credits.subtotal);return {...totals(j),revenue,cost:i.cost,profit:round(revenue-i.cost)};}
 function num(v:unknown,label:string,max=1000000){if(typeof v!=='number'||!Number.isFinite(v)||v<0||v>max)throw Error('Invalid '+label);return v;}
 function str(v:unknown,label:string,max=500){if(typeof v!=='string'||v.length>max)throw Error('Invalid '+label);return v.trim();}
 const id=()=>crypto.randomUUID();
 export function apply(s:State,action:string,p:any):State{
  s=structuredClone(s);
+ s.creditNotes??=[];
  if(action==='customer'){const c={id:id(),name:str(p.name,'name',120),phone:str(p.phone,'phone',60),email:str(p.email,'email',200),address:str(p.address,'address')};if(!c.name||!c.phone)throw Error('Customer name and mobile are required');s.customers.push(c);}
  else if(action==='staff'){const name=str(p.name,'name',120);if(!name)throw Error('Name is required');s.staff.push({id:id(),name,cost:num(p.cost,'hourly cost',10000),active:true});}
  else if(action==='settings'){const t={...s.settings};for(const key of ['name','address','phone','email','website','trn'] as const)t[key]=str(p[key],key);t.rate=num(p.rate,'selling rate',10000);t.tax=num(p.tax,'tax',100);t.logo=str(p.logo,'logo',300000);if(t.logo&&!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(t.logo))throw Error('Use a PNG, JPEG or WebP logo');if(!t.name)throw Error('Company name required');s.settings=t;}
@@ -41,7 +46,18 @@ export function apply(s:State,action:string,p:any):State{
  const lines=[{label:j.service+' · '+j.cleaners+' cleaners × '+j.actualHours+' hours',qty,rate:j.rate,amount:round(qty*j.rate)}];for(const [label,amount] of [['Machinery',j.machinery],['Transportation',j.transport],['Materials',j.materials]] as [string,number][])if(amount)lines.push({label,qty:1,rate:amount,amount});
  const tax=round(t.revenue*s.settings.tax/100);s.invoices.push({id:id(),number:'FAM-'+String(s.invoices.length+1).padStart(5,'0'),jobId:j.id,customer:c,company:{...s.settings},lines,subtotal:t.revenue,tax,total:round(t.revenue+tax),cost:t.cost,paid:0,payments:[],issued:new Date().toISOString()});j.status='Invoiced';
  }
- else if(action==='payment'){const inv=s.invoices.find(i=>i.id===p.id);if(!inv)throw Error('Invoice not found');const amount=round(num(p.amount,'payment'));if(!amount||amount>round(inv.total-inv.paid))throw Error('Payment must be positive and within the outstanding balance');inv.paid=round(inv.paid+amount);inv.payments.push({id:id(),amount,date:new Date().toISOString()});}
+ else if(action==='creditNote'){
+ const inv=s.invoices.find(i=>i.id===p.id);if(!inv)throw Error('Invoice not found');
+ const requestId=str(p.requestId,'request identifier',80);if(!requestId)throw Error('Request identifier required');
+ const duplicate=s.creditNotes.find(n=>n.requestId===requestId);if(duplicate){if(duplicate.invoiceId!==inv.id)throw Error('Request identifier already used');return s;}
+ const reason=str(p.reason,'return reason',1000);if(!reason)throw Error('Enter a reason for the return');
+ const prior=invoiceSummary(s,inv);const remaining=round(inv.subtotal-prior.subtotal);const amount=round(num(p.amount,'credit amount'));if(!amount||amount>remaining)throw Error('Credit must be positive and cannot exceed the remaining invoice amount before tax');
+ // Allocate original tax cumulatively; the final credit receives any rounding remainder.
+ const cumulativeTax=amount===remaining?inv.tax:round(inv.tax*(prior.subtotal+amount)/inv.subtotal);
+ const tax=round(cumulativeTax-prior.tax);
+ s.creditNotes.push({id:id(),requestId,number:'CN-'+String(s.creditNotes.length+1).padStart(5,'0'),invoiceId:inv.id,invoiceNumber:inv.number,invoiceIssued:inv.issued,customer:structuredClone(inv.customer),company:structuredClone(inv.company),reason,subtotal:amount,tax,total:round(amount+tax),issued:new Date().toISOString()});
+ }
+ else if(action==='payment'){const inv=s.invoices.find(i=>i.id===p.id);if(!inv)throw Error('Invoice not found');const amount=round(num(p.amount,'payment'));if(!amount||amount>invoiceSummary(s,inv).balance)throw Error('Payment must be positive and within the outstanding balance');inv.paid=round(inv.paid+amount);inv.payments.push({id:id(),amount,date:new Date().toISOString()});}
  else throw Error('Unknown action');
  return s;
 }
